@@ -1,0 +1,330 @@
+{
+  "info": {
+    "_postman_id": "dramabox-api-v1.2.0",
+    "name": "🎬 Dramabox API",
+    "description": "# Dramabox API Collection\n\nREST API untuk mengakses konten Dramabox. Akses drama, episode, streaming URL, dan lainnya.\n\n## Base URL\n- **Local**: `http://localhost:3000`\n- **Production**: `https://dramabox-api-rho.vercel.app`\n\n## Rate Limiting\n- API: 100 request/menit\n- Download: 5 request/menit\n\n## Response Format\n```json\n{\n  \"success\": true,\n  \"data\": [...],\n  \"meta\": {\n    \"timestamp\": \"2024-01-01T00:00:00.000Z\"\n  }\n}\n```\n\n## Developer\nHandoko x Mari Partner",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "lang",
+      "value": "in",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "🔍 Search",
+      "item": [
+        {
+          "name": "Search Drama",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/search?keyword=ceo&page=1&size=20&lang={{lang}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search"],
+              "query": [
+                {
+                  "key": "keyword",
+                  "value": "ceo",
+                  "description": "🔍 Kata kunci pencarian (WAJIB)"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "📄 Halaman (default: 1)"
+                },
+                {
+                  "key": "size",
+                  "value": "20",
+                  "description": "📦 Jumlah per halaman (default: 20)"
+                },
+                {
+                  "key": "lang",
+                  "value": "{{lang}}",
+                  "description": "🌐 Bahasa: in/en/th (default: in)"
+                }
+              ]
+            },
+            "description": "Mencari drama berdasarkan kata kunci.\n\n**Parameter Wajib:**\n- `keyword` - Kata kunci pencarian\n\n**Contoh Response:**\n```json\n{\n  \"success\": true,\n  \"data\": [\n    {\n      \"id\": 41000122558,\n      \"name\": \"CEO Drama\",\n      \"cover\": \"https://...\"\n    }\n  ],\n  \"meta\": {\n    \"pagination\": {\n      \"page\": 1,\n      \"size\": 20,\n      \"hasMore\": true\n    }\n  }\n}\n```"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🏠 Home",
+      "item": [
+        {
+          "name": "Get Home / Drama List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/home?page=1&size=10&lang={{lang}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "home"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "📄 Halaman (default: 1)"
+                },
+                {
+                  "key": "size",
+                  "value": "10",
+                  "description": "📦 Jumlah per halaman (default: 10)"
+                },
+                {
+                  "key": "lang",
+                  "value": "{{lang}}",
+                  "description": "🌐 Bahasa"
+                }
+              ]
+            },
+            "description": "Mendapatkan daftar drama terbaru di homepage.\n\n**Response Fields:**\n- `id` - Book ID\n- `name` - Judul drama\n- `cover` - URL cover image\n- `chapterCount` - Jumlah episode\n- `introduction` - Deskripsi singkat\n- `tags` - Array tag\n- `playCount` - Jumlah views"
+          }
+        },
+        {
+          "name": "Get VIP / Theater",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vip?lang={{lang}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vip"],
+              "query": [
+                {
+                  "key": "lang",
+                  "value": "{{lang}}",
+                  "description": "🌐 Bahasa"
+                }
+              ]
+            },
+            "description": "Mendapatkan daftar drama dari channel VIP/Theater.\n\n👑 Konten premium yang direkomendasikan."
+          }
+        },
+        {
+          "name": "Get Recommendations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/recommend?lang={{lang}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "recommend"],
+              "query": [
+                {
+                  "key": "lang",
+                  "value": "{{lang}}",
+                  "description": "🌐 Bahasa"
+                }
+              ]
+            },
+            "description": "Mendapatkan daftar drama rekomendasi.\n\n⭐ Drama yang sedang trending dan populer."
+          }
+        }
+      ]
+    },
+    {
+      "name": "📄 Detail & Episodes",
+      "item": [
+        {
+          "name": "Get Drama Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/detail/41000122558/v2?lang={{lang}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "detail", "41000122558", "v2"],
+              "query": [
+                {
+                  "key": "lang",
+                  "value": "{{lang}}",
+                  "description": "🌐 Bahasa"
+                }
+              ]
+            },
+            "description": "Mendapatkan detail lengkap sebuah drama.\n\n**Path Parameter:**\n- `bookId` - ID drama (WAJIB)\n\n**Response Fields:**\n- `drama` - Informasi detail drama\n- `chapters` - Daftar chapter dengan ID"
+          }
+        },
+        {
+          "name": "Get Episode List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/chapters/41000122558?lang={{lang}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "chapters", "41000122558"],
+              "query": [
+                {
+                  "key": "lang",
+                  "value": "{{lang}}",
+                  "description": "🌐 Bahasa"
+                }
+              ]
+            },
+            "description": "Mendapatkan daftar semua chapter/episode sebuah drama.\n\n**Path Parameter:**\n- `bookId` - ID drama (WAJIB)\n\n**Response:** Array of chapters dengan:\n- `chapterId`\n- `chapterIndex`\n- `chapterName`\n- `videoPath`"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📺 Streaming",
+      "item": [
+        {
+          "name": "Get Stream URL",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stream?bookId=41000122558&episode=1&lang={{lang}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "stream"],
+              "query": [
+                {
+                  "key": "bookId",
+                  "value": "41000122558",
+                  "description": "📖 ID drama (WAJIB)"
+                },
+                {
+                  "key": "episode",
+                  "value": "1",
+                  "description": "📺 Nomor episode (WAJIB)"
+                },
+                {
+                  "key": "lang",
+                  "value": "{{lang}}",
+                  "description": "🌐 Bahasa"
+                }
+              ]
+            },
+            "description": "Mendapatkan link streaming (m3u8/mp4) untuk episode tertentu.\n\n**Parameter Wajib:**\n- `bookId` - ID drama\n- `episode` - Nomor episode\n\n**Response:**\n```json\n{\n  \"success\": true,\n  \"data\": {\n    \"bookId\": \"41000122558\",\n    \"allEps\": 80,\n    \"chapter\": {\n      \"id\": 123456,\n      \"index\": 1,\n      \"duration\": 120,\n      \"video\": {\n        \"mp4\": \"https://...\",\n        \"m3u8\": \"https://...\"\n      }\n    }\n  }\n}\n```"
+          }
+        },
+        {
+          "name": "Batch Download All Episodes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/download/41000122558?lang={{lang}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["download", "41000122558"],
+              "query": [
+                {
+                  "key": "lang",
+                  "value": "{{lang}}",
+                  "description": "🌐 Bahasa"
+                }
+              ]
+            },
+            "description": "⬇️ **Batch Download All Chapters**\n\nMendapatkan seluruh episode drama dalam format JSON.\n\n⚠️ **Rate Limit:** 5 request/menit\n\n**Path Parameter:**\n- `bookId` - ID drama (WAJIB)\n\n**Response:** Array semua episode dengan:\n- `chapterId`\n- `chapterIndex`\n- `chapterName`\n- `videoPath`"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🏷️ Categories",
+      "item": [
+        {
+          "name": "Get All Categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/categories?lang={{lang}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "categories"],
+              "query": [
+                {
+                  "key": "lang",
+                  "value": "{{lang}}",
+                  "description": "🌐 Bahasa"
+                }
+              ]
+            },
+            "description": "Mendapatkan daftar semua kategori drama.\n\n**Response:** Array kategori dengan:\n- `id` - ID kategori\n- `name` - Nama kategori"
+          }
+        },
+        {
+          "name": "Get Drama by Category",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/category/449?page=1&size=10&lang={{lang}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "category", "449"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "📄 Halaman"
+                },
+                {
+                  "key": "size",
+                  "value": "10",
+                  "description": "📦 Jumlah per halaman"
+                },
+                {
+                  "key": "lang",
+                  "value": "{{lang}}",
+                  "description": "🌐 Bahasa"
+                }
+              ]
+            },
+            "description": "Mendapatkan daftar drama berdasarkan kategori tertentu.\n\n**Path Parameter:**\n- `id` - ID kategori (WAJIB)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔧 Utility",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "💚 **Health Check Endpoint**\n\nMemeriksa status server.\n\n**Response:**\n```json\n{\n  \"status\": \"healthy\",\n  \"uptime\": 12345.67,\n  \"version\": \"1.2.0\",\n  \"memory\": {\n    \"used\": \"50MB\",\n    \"total\": \"100MB\"\n  }\n}\n```"
+          }
+        },
+        {
+          "name": "Generate Headers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/generate-header?lang={{lang}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "generate-header"],
+              "query": [
+                {
+                  "key": "lang",
+                  "value": "{{lang}}",
+                  "description": "🌐 Bahasa"
+                }
+              ]
+            },
+            "description": "🔧 **Generate API Headers**\n\nMenghasilkan headers yang diperlukan untuk memanggil API Dramabox secara langsung.\n\n**Untuk debugging dan development.**"
+          }
+        }
+      ]
+    }
+  ]
+}
