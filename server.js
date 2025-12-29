@@ -1,284 +1,604 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
 import Dramabox from "./src/services/Dramabox.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// ============================================
+// CONFIGURATION
+// ============================================
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || "development";
 
+// ============================================
+// DRAMABOX INSTANCE POOL (Singleton per Language)
+// ============================================
+const dramaboxInstances = new Map();
+
+function getDramaboxInstance(lang = "in") {
+  if (!dramaboxInstances.has(lang)) {
+    dramaboxInstances.set(lang, new Dramabox(lang));
+  }
+  return dramaboxInstances.get(lang);
+}
+
+// ============================================
+// MIDDLEWARE
+// ============================================
+
+// Trust proxy (for Vercel, Heroku, etc.)
 app.set("trust proxy", 1);
 
-app.set("view engine", "ejs");
-app.set("views", path.join(__dirname, "views"));
+// Security headers
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Disable for EJS templates
+    crossOriginEmbedderPolicy: false,
+  })
+);
 
-// Serve static files from public folder
-app.use(express.static(path.join(__dirname, "public")));
+// CORS
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
-app.use(cors());
-app.use(express.json());
+// Compression (gzip)
+app.use(compression());
+
+// JSON parser with size limit
+app.use(express.json({ limit: "1mb" }));
+
+// URL encoded parser
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+
+// Rate limiting - 100 requests per minute per IP
+const limiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100,
+  message: {
+    success: false,
+    error: {
+      code: "RATE_LIMIT_EXCEEDED",
+      message: "Terlalu banyak request. Coba lagi dalam 1 menit.",
+    },
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip || req.headers["x-forwarded-for"] || "unknown",
+});
+app.use("/api/", limiter);
+
+// Request timeout middleware (30 seconds)
 app.use((req, res, next) => {
-  res.locals.request = req;
+  req.setTimeout(30000, () => {
+    res.status(408).json({
+      success: false,
+      error: {
+        code: "REQUEST_TIMEOUT",
+        message: "Request timeout. Silakan coba lagi.",
+      },
+    });
+  });
   next();
 });
 
-// --- HALAMAN UTAMA (DOKUMENTASI) ---
-app.get("/", (req, res) => {
-  // Logika protokol/baseUrl telah dihapus
-  res.render("docs", {
-    PORT: PORT,
+// Request logging (development only)
+if (NODE_ENV === "development") {
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on("finish", () => {
+      const duration = Date.now() - start;
+      console.log(
+        `[${req.method}] ${req.path} - ${res.statusCode} (${duration}ms)`
+      );
+    });
+    next();
+  });
+}
+
+// View engine
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "views"));
+
+// Static files with caching
+app.use(
+  express.static(path.join(__dirname, "public"), {
+    maxAge: NODE_ENV === "production" ? "1d" : 0,
+    etag: true,
+  })
+);
+
+// ============================================
+// UTILITY FUNCTIONS
+// ============================================
+
+// Standard API response builder
+const apiResponse = {
+  success: (data, meta = {}) => ({
+    success: true,
+    data,
+    meta: {
+      timestamp: new Date().toISOString(),
+      ...meta,
+    },
+  }),
+  error: (code, message, details = null) => ({
+    success: false,
+    error: {
+      code,
+      message,
+      ...(details && { details }),
+    },
+    meta: {
+      timestamp: new Date().toISOString(),
+    },
+  }),
+  paginated: (data, page, size, hasMore) => ({
+    success: true,
+    data,
+    meta: {
+      timestamp: new Date().toISOString(),
+      pagination: {
+        page: parseInt(page),
+        size: parseInt(size),
+        hasMore,
+      },
+    },
+  }),
+};
+
+// Input validation helper
+const validateRequired = (params, required) => {
+  const missing = required.filter((key) => !params[key]);
+  if (missing.length > 0) {
+    return `Parameter wajib: ${missing.join(", ")}`;
+  }
+  return null;
+};
+
+// Sanitize string input
+const sanitizeInput = (str) => {
+  if (typeof str !== "string") return str;
+  return str.trim().slice(0, 200); // Limit to 200 chars
+};
+
+// Async handler wrapper (prevents unhandled promise rejections)
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+// ============================================
+// ROUTES
+// ============================================
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.json({
+    status: "healthy",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    version: "1.2.0",
+    memory: {
+      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + "MB",
+      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + "MB",
+    },
   });
 });
 
-// --- API ROUTES ---
+// Documentation page
+app.get("/", (req, res) => {
+  res.render("docs", { PORT });
+});
+
+// ============================================
+// API ROUTES
+// ============================================
 
 // 1. Search Drama
-app.get("/api/search", async (req, res) => {
-  try {
-    const { keyword, page, lang } = req.query;
-    if (!keyword)
-      return res.status(400).json({ error: "Parameter keyword wajib diisi" });
+app.get(
+  "/api/search",
+  asyncHandler(async (req, res) => {
+    const { keyword, page = 1, size = 20, lang = "in" } = req.query;
 
-    const dramabox = new Dramabox(lang || "in");
-
-    const result = await dramabox.searchDrama(keyword, page || 1);
-    res.json({ success: true, data: result });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// 2. Home List
-app.get("/api/home", async (req, res) => {
-  try {
-    const { page, size, lang } = req.query;
-
-    const dramabox = new Dramabox(lang || "in");
-
-    const result = await dramabox.getDramaList(page || 1, size || 10);
-    res.json({ success: true, data: result });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// 3. Get VIP / Theater List (BARU)
-app.get("/api/vip", async (req, res) => {
-  try {
-    const { lang } = req.query;
-
-    const dramabox = new Dramabox(lang || "in");
-
-    const result = await dramabox.getVip();
-    res.json({ success: true, data: result });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// 4. Detail Drama V2
-app.get("/api/detail/:bookId/v2", async (req, res) => {
-  try {
-    const { bookId } = req.params;
-    const { lang } = req.query;
-    if (!bookId) return res.status(400).json({ error: "Book ID required" });
-
-    const dramabox = new Dramabox(lang || "in");
-
-    const result = await dramabox.getDramaDetailV2(bookId);
-    res.json({ success: true, data: result });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// 5. Get Chapters List
-app.get("/api/chapters/:bookId", async (req, res) => {
-  try {
-    const { bookId } = req.params;
-    const { lang } = req.query;
-
-    const dramabox = new Dramabox(lang || "in");
-
-    const result = await dramabox.getChapters(bookId);
-    res.json({ success: true, data: result });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// 6. Get Stream URL (BARU)
-app.get("/api/stream", async (req, res) => {
-  try {
-    const { bookId, episode, lang } = req.query;
-
-    if (!bookId || !episode) {
+    const validationError = validateRequired({ keyword }, ["keyword"]);
+    if (validationError) {
       return res
         .status(400)
-        .json({ error: "Parameter bookId dan episode wajib diisi." });
+        .json(apiResponse.error("VALIDATION_ERROR", validationError));
     }
 
-    const dramabox = new Dramabox(lang || "in");
+    const dramabox = getDramaboxInstance(lang);
+    const result = await dramabox.searchDrama(
+      sanitizeInput(keyword),
+      parseInt(page),
+      parseInt(size)
+    );
 
-    const result = await dramabox.getStreamUrl(bookId, episode);
+    res.json(apiResponse.paginated(result.book, page, size, result.isMore));
+  })
+);
 
-    // Method getStreamUrl sudah mengembalikan format JSON lengkap { status: "success", ... }
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
-  }
-});
+// 2. Home / Drama List
+app.get(
+  "/api/home",
+  asyncHandler(async (req, res) => {
+    const { page = 1, size = 10, lang = "in" } = req.query;
 
-// 7. Batch Download (Scraping)
-app.get("/download/:bookId", async (req, res) => {
-  const { bookId } = req.params;
-  const { lang } = req.query;
+    const dramabox = getDramaboxInstance(lang);
+    const result = await dramabox.getDramaList(parseInt(page), parseInt(size));
 
-  if (!bookId) {
-    return res.status(400).json({ error: "Missing bookId" });
-  }
+    res.json(apiResponse.paginated(result.book, page, size, result.isMore));
+  })
+);
 
-  try {
-    const dramabox = new Dramabox(lang || "in");
+// 3. VIP / Theater List
+app.get(
+  "/api/vip",
+  asyncHandler(async (req, res) => {
+    const { lang = "in" } = req.query;
 
-    const rawData = await dramabox.batchDownload(bookId);
+    const dramabox = getDramaboxInstance(lang);
+    const result = await dramabox.getVip();
 
-    if (!rawData || rawData.length === 0) {
-      return res.status(404).json({
-        status: "failed",
-        message: "Tidak ada data yang ditemukan atau terjadi error.",
-      });
+    res.json(apiResponse.success(result));
+  })
+);
+
+// 4. Drama Detail V2
+app.get(
+  "/api/detail/:bookId/v2",
+  asyncHandler(async (req, res) => {
+    const { bookId } = req.params;
+    const { lang = "in" } = req.query;
+
+    if (!bookId || isNaN(bookId)) {
+      return res
+        .status(400)
+        .json(
+          apiResponse.error("VALIDATION_ERROR", "bookId harus berupa angka")
+        );
     }
 
-    res.json({
-      status: "success",
-      total: rawData.length,
-      data: rawData,
-    });
-  } catch (error) {
-    console.error("Download Error:", error.message);
-    res.status(500).json({ status: "error", message: error.message });
-  }
+    const dramabox = getDramaboxInstance(lang);
+    const result = await dramabox.getDramaDetailV2(bookId);
+
+    res.json(apiResponse.success(result));
+  })
+);
+
+// 5. Chapters List
+app.get(
+  "/api/chapters/:bookId",
+  asyncHandler(async (req, res) => {
+    const { bookId } = req.params;
+    const { lang = "in" } = req.query;
+
+    if (!bookId || isNaN(bookId)) {
+      return res
+        .status(400)
+        .json(
+          apiResponse.error("VALIDATION_ERROR", "bookId harus berupa angka")
+        );
+    }
+
+    const dramabox = getDramaboxInstance(lang);
+    const result = await dramabox.getChapters(bookId);
+
+    res.json(
+      apiResponse.success(result, {
+        total: result.length,
+      })
+    );
+  })
+);
+
+// 6. Stream URL
+app.get(
+  "/api/stream",
+  asyncHandler(async (req, res) => {
+    const { bookId, episode, lang = "in" } = req.query;
+
+    const validationError = validateRequired({ bookId, episode }, [
+      "bookId",
+      "episode",
+    ]);
+    if (validationError) {
+      return res
+        .status(400)
+        .json(apiResponse.error("VALIDATION_ERROR", validationError));
+    }
+
+    if (isNaN(bookId) || isNaN(episode)) {
+      return res
+        .status(400)
+        .json(
+          apiResponse.error(
+            "VALIDATION_ERROR",
+            "bookId dan episode harus berupa angka"
+          )
+        );
+    }
+
+    const dramabox = getDramaboxInstance(lang);
+    const result = await dramabox.getStreamUrl(bookId, parseInt(episode));
+
+    res.json(apiResponse.success(result.data));
+  })
+);
+
+// 7. Batch Download (Heavy operation - stricter rate limit)
+const downloadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5, // Only 5 requests per minute for download
+  message: apiResponse.error(
+    "RATE_LIMIT_EXCEEDED",
+    "Download dibatasi 5 request per menit"
+  ),
 });
+
+app.get(
+  "/download/:bookId",
+  downloadLimiter,
+  asyncHandler(async (req, res) => {
+    const { bookId } = req.params;
+    const { lang = "in" } = req.query;
+
+    if (!bookId || isNaN(bookId)) {
+      return res
+        .status(400)
+        .json(
+          apiResponse.error("VALIDATION_ERROR", "bookId harus berupa angka")
+        );
+    }
+
+    const dramabox = getDramaboxInstance(lang);
+    const result = await dramabox.batchDownload(bookId);
+
+    if (!result || result.length === 0) {
+      return res
+        .status(404)
+        .json(
+          apiResponse.error(
+            "NOT_FOUND",
+            "Data tidak ditemukan atau terjadi error"
+          )
+        );
+    }
+
+    res.json(
+      apiResponse.success(result, {
+        total: result.length,
+        bookId,
+      })
+    );
+  })
+);
 
 // 8. Categories List
-app.get("/api/categories", async (req, res) => {
-  try {
-    const { lang } = req.query;
+app.get(
+  "/api/categories",
+  asyncHandler(async (req, res) => {
+    const { lang = "in" } = req.query;
 
-    const dramabox = new Dramabox(lang || "in");
-
+    const dramabox = getDramaboxInstance(lang);
     const result = await dramabox.getCategories();
-    res.json({ success: true, data: result });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
 
-// 9. Get Book By Category
-app.get("/api/category/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { page, size, lang } = req.query;
-
-    const dramabox = new Dramabox(lang || "in");
-
-    const result = await dramabox.getBookFromCategories(
-      id,
-      page || 1,
-      size || 10
+    res.json(
+      apiResponse.success(result, {
+        total: result.length,
+      })
     );
-    res.json({ success: true, data: result });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+  })
+);
 
-// 10. Recommend
-app.get("/api/recommend", async (req, res) => {
-  try {
-    const { lang } = req.query;
+// 9. Drama by Category
+app.get(
+  "/api/category/:id",
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { page = 1, size = 10, lang = "in" } = req.query;
 
-    const dramabox = new Dramabox(lang || "in");
+    if (!id || isNaN(id)) {
+      return res
+        .status(400)
+        .json(
+          apiResponse.error(
+            "VALIDATION_ERROR",
+            "id kategori harus berupa angka"
+          )
+        );
+    }
 
+    const dramabox = getDramaboxInstance(lang);
+    const result = await dramabox.getBookFromCategories(
+      parseInt(id),
+      parseInt(page),
+      parseInt(size)
+    );
+
+    res.json(apiResponse.success(result));
+  })
+);
+
+// 10. Recommendations
+app.get(
+  "/api/recommend",
+  asyncHandler(async (req, res) => {
+    const { lang = "in" } = req.query;
+
+    const dramabox = getDramaboxInstance(lang);
     const result = await dramabox.getRecommendedBooks();
-    res.json({ success: true, data: result });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
 
-// 11. Generate Header (Utility)
-app.get("/api/generate-header", async (req, res) => {
-  try {
-    const { lang } = req.query;
+    res.json(
+      apiResponse.success(result, {
+        total: result.length,
+      })
+    );
+  })
+);
 
-    const dramabox = new Dramabox(lang || "in");
+// 11. Generate Headers (Utility/Debug)
+app.get(
+  "/api/generate-header",
+  asyncHandler(async (req, res) => {
+    const { lang = "in" } = req.query;
 
+    const dramabox = getDramaboxInstance(lang);
     const tokenData = await dramabox.getToken();
     const timestamp = Date.now();
-    const baseHeaders = dramabox.buildHeaders(tokenData, timestamp);
-    const body = JSON.stringify({});
-    const sn = dramabox.util.sign(
-      `timestamp=${timestamp}${body}${tokenData.deviceId}${tokenData.androidId}${baseHeaders["tn"]}`
+    const headers = dramabox.buildHeaders(tokenData, timestamp);
+
+    res.json(
+      apiResponse.success({
+        language: dramabox.lang,
+        timestamp,
+        headers,
+        tokenInfo: {
+          deviceId: tokenData.deviceId,
+          validUntil: new Date(tokenData.expiry).toISOString(),
+        },
+      })
     );
+  })
+);
 
-    const finalHeaders = {
-      ...baseHeaders,
-      sn: sn,
-      "request-timestamp": timestamp,
-    };
+// ============================================
+// ERROR HANDLING
+// ============================================
 
-    res.json({
-      message: "Header lengkap dengan SN dan Timestamp berhasil dibuat.",
-      language_used: dramabox.lang,
-      timestamp_ms: timestamp,
-      target_url_ref: `${dramabox.baseUrl_Dramabox}/ENDPOINT_EXAMPLE?timestamp=${timestamp}`,
-      generated_headers: finalHeaders,
-      token_cache_info: {
-        deviceId: tokenData.deviceId,
-        androidId: tokenData.androidId,
-        spoffer: tokenData.spoffer,
-        token_valid_until: new Date(tokenData.expiry).toISOString(),
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: "Gagal memproses permintaan header.",
-      details: error.message,
-    });
-  }
+// 404 handler
+app.use((req, res) => {
+  res
+    .status(404)
+    .json(
+      apiResponse.error(
+        "NOT_FOUND",
+        `Endpoint ${req.method} ${req.path} tidak ditemukan`
+      )
+    );
 });
 
-app.listen(PORT, () => {
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error(`[ERROR] ${req.method} ${req.path}:`, err.message);
+
+  // Handle specific error types
+  if (err.name === "ValidationError") {
+    return res
+      .status(400)
+      .json(apiResponse.error("VALIDATION_ERROR", err.message));
+  }
+
+  if (err.code === "ECONNABORTED" || err.message.includes("timeout")) {
+    return res
+      .status(408)
+      .json(apiResponse.error("REQUEST_TIMEOUT", "Permintaan timeout"));
+  }
+
+  if (err.response?.status === 429) {
+    return res
+      .status(429)
+      .json(
+        apiResponse.error(
+          "UPSTREAM_RATE_LIMIT",
+          "Server sumber sedang sibuk, coba lagi nanti"
+        )
+      );
+  }
+
+  // Default server error
+  res
+    .status(500)
+    .json(
+      apiResponse.error(
+        "INTERNAL_ERROR",
+        NODE_ENV === "production" ? "Terjadi kesalahan server" : err.message
+      )
+    );
+});
+
+// ============================================
+// SERVER STARTUP
+// ============================================
+
+const server = app.listen(PORT, () => {
   console.log("\n");
   console.log("╔══════════════════════════════════════════════════════════╗");
   console.log("║                                                          ║");
-  console.log("║   🎬  DRAMABOX API SERVER                                ║");
+  console.log("║   🎬  DRAMABOX API SERVER v1.2.0                         ║");
   console.log("║                                                          ║");
   console.log("╠══════════════════════════════════════════════════════════╣");
   console.log("║                                                          ║");
-  console.log(`║   🚀  Status  : Running                                  ║`);
+  console.log(`║   🚀  Status  : Running (${NODE_ENV})                     `);
   console.log(
     `║   🌐  Local   : http://localhost:${PORT}                      ║`
   );
   console.log(
-    "║   📖  Docs    : http://localhost:" + PORT + "/                      ║"
+    `║   📖  Docs    : http://localhost:${PORT}/                      ║`
+  );
+  console.log(
+    `║   💚  Health  : http://localhost:${PORT}/health                ║`
   );
   console.log("║                                                          ║");
   console.log("╠══════════════════════════════════════════════════════════╣");
-  console.log("║   Available Endpoints:                                   ║");
-  console.log("║   • GET  /api/search?keyword=...    Search drama         ║");
-  console.log("║   • GET  /api/home                  Home list            ║");
-  console.log("║   • GET  /api/detail/:id/v2         Drama detail         ║");
-  console.log("║   • GET  /api/chapters/:id          Episode list         ║");
-  console.log("║   • GET  /api/stream?bookId&episode Stream URL           ║");
-  console.log("║   • GET  /api/categories            Categories           ║");
-  console.log("║   • GET  /api/recommend             Recommendations      ║");
+  console.log("║   Features:                                              ║");
+  console.log("║   ✓ Rate Limiting (100 req/min)                          ║");
+  console.log("║   ✓ Gzip Compression                                     ║");
+  console.log("║   ✓ Security Headers (Helmet)                            ║");
+  console.log("║   ✓ Request Caching                                      ║");
+  console.log("║   ✓ Auto Retry with Backoff                              ║");
   console.log("║                                                          ║");
   console.log("╚══════════════════════════════════════════════════════════╝");
   console.log("\n");
 });
+
+// ============================================
+// GRACEFUL SHUTDOWN
+// ============================================
+
+const gracefulShutdown = (signal) => {
+  console.log(`\n[${signal}] Shutting down gracefully...`);
+
+  server.close(() => {
+    console.log("[Server] HTTP server closed");
+
+    // Clear Dramabox instances
+    dramaboxInstances.clear();
+    console.log("[Cache] Instances cleared");
+
+    console.log("[Shutdown] Complete");
+    process.exit(0);
+  });
+
+  // Force exit after 10 seconds
+  setTimeout(() => {
+    console.error("[Shutdown] Force exit after timeout");
+    process.exit(1);
+  }, 10000);
+};
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+// Handle uncaught errors
+process.on("uncaughtException", (err) => {
+  console.error("[FATAL] Uncaught Exception:", err);
+  gracefulShutdown("UNCAUGHT_EXCEPTION");
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[FATAL] Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+export default app;
