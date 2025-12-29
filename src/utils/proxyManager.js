@@ -8,7 +8,10 @@ let lastRotatedProxy = null;
 export function loadLocalProxy() {
   try {
     const file = fs.readFileSync("./proxyList.txt", "utf-8");
-    proxies = file.split("\n").map(x => x.trim()).filter(Boolean);
+    proxies = file
+      .split("\n")
+      .map((x) => x.trim())
+      .filter(Boolean);
     console.log("Loaded local proxies:", proxies.length);
   } catch (err) {
     console.log("Cannot load proxyList.txt:", err.message);
@@ -18,8 +21,12 @@ export function loadLocalProxy() {
 // Load online proxy list (extra optional)
 export async function loadOnlineProxy() {
   try {
-    const res = await axios.get("https://proxylist.geonode.com/api/proxy-list?limit=20");
-    const online = res.data.data.map(p => `${p.protocols[0]}://${p.ip}:${p.port}`);
+    const res = await axios.get(
+      "https://proxylist.geonode.com/api/proxy-list?limit=20"
+    );
+    const online = res.data.data.map(
+      (p) => `${p.protocols[0]}://${p.ip}:${p.port}`
+    );
 
     proxies.push(...online);
     proxies = [...new Set(proxies)];
