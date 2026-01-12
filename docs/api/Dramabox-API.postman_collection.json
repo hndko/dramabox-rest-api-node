@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "dramabox-api-v1.2.0",
     "name": "🎬 Dramabox API",
-    "description": "# Dramabox API Collection\n\nREST API untuk mengakses konten Dramabox. Akses drama, episode, streaming URL, dan lainnya.\n\n## Base URL\n- **Local**: `http://localhost:3000`\n- **Production**: `https://dramabox-api-rho.vercel.app`\n\n## Rate Limiting\n- API: 100 request/menit\n- Download: 5 request/menit\n\n## Response Format\n```json\n{\n  \"success\": true,\n  \"data\": [...],\n  \"meta\": {\n    \"timestamp\": \"2024-01-01T00:00:00.000Z\"\n  }\n}\n```\n\n## Developer\nHandoko x Mari Partner",
+    "description": "# Dramabox API Collection\n\nREST API untuk mengakses konten Dramabox. Akses drama, episode, streaming URL, dan lainnya.\n\n## Base URL\n- **Local**: `http://localhost:3000`\n- **Production**: `https://dramabox-api-rho.vercel.app`\n\n## Language Support\nAPI ini mendukung parameter `lang` (`in` atau `en`). Default: `in`.\n\n## Rate Limiting\n- API: 100 request/menit\n- Download: 5 request/menit\n\n## Response Format\n```json\n{\n  \"success\": true,\n  \"data\": [...],\n  \"meta\": {\n    \"timestamp\": \"2024-01-01T00:00:00.000Z\"\n  }\n}\n```\n\n## Developer\nHandoko x Mari Partner",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
